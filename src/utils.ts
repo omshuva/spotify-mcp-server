@@ -56,8 +56,17 @@ export function loadSpotifyConfig({
   if (required && !refreshToken) missing.push('SPOTIFY_REFRESH_TOKEN');
 
   if (missing.length > 0) {
+    // The two callers fail in different places, so point each at the right fix
+    // rather than sending a developer running `npm run auth` to the Railway UI.
+    const hint = required
+      ? 'Set these in the deployment environment (Railway: service > Variables). ' +
+        'Obtain SPOTIFY_REFRESH_TOKEN by running "npm run auth" locally.'
+      : 'Set these in a local .env file (copy .env.example and fill in the ' +
+        'values from your Spotify app dashboard), then load it with: ' +
+        'set -a; source .env; set +a';
+
     throw new Error(
-      `Missing required environment variable(s): ${missing.join(', ')}. Set these in the deployment environment (Railway: service > Variables). Obtain SPOTIFY_REFRESH_TOKEN by running "npm run auth" locally.`,
+      `Missing required environment variable(s): ${missing.join(', ')}. ${hint}`,
     );
   }
 
