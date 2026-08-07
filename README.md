@@ -103,15 +103,6 @@ A lightweight [Model Context Protocol (MCP)](https://modelcontextprotocol.io) se
    - **Returns**: List of available devices with name, type, active status, volume, and device ID
    - **Example**: `getAvailableDevices()`
 
-9. **removeUsersSavedTracks**
-
-   - **Description**: Remove one or more tracks from the user's "Liked Songs" library (max 40 per request)
-   - **Parameters**:
-     - `trackIds` (array): Array of Spotify track IDs to remove (max 40)
-   - **Returns**: Success confirmation message
-   - **Example**: `removeUsersSavedTracks({ trackIds: ["4iV5W9uYEdYUVa79Axb7Rh", "1301WleyT98MSxVHPZCA6M"] })`
-
-
 ### Play / Create Operations
 
 1. **playMusic**
@@ -230,16 +221,7 @@ A lightweight [Model Context Protocol (MCP)](https://modelcontextprotocol.io) se
    - **Returns**: List of tracks from the album with track names, artists, duration, and IDs. Shows pagination info.
    - **Example**: `getAlbumTracks("4aawyAB9vmqN3uQ7FjRGTy", 10, 0)`
 
-3. **saveOrRemoveAlbumForUser**
-
-   - **Description**: Save or remove albums from the user's "Your Music" library
-   - **Parameters**:
-     - `albumIds` (array): Array of Spotify album IDs (max 20)
-     - `action` (string): Action to perform: "save" or "remove"
-   - **Returns**: Success status with confirmation message
-   - **Example**: `saveOrRemoveAlbumForUser(["4aawyAB9vmqN3uQ7FjRGTy"], "save")`
-
-4. **checkUsersSavedAlbums**
+3. **checkUsersSavedAlbums**
 
    - **Description**: Check if albums are saved in the user's "Your Music" library
    - **Parameters**:
@@ -269,17 +251,7 @@ A lightweight [Model Context Protocol (MCP)](https://modelcontextprotocol.io) se
    - **Returns**: Success confirmation with list of updated fields
    - **Example**: `updatePlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", name: "New Name", public: true })`
 
-3. **removeTracksFromPlaylist**
-
-   - **Description**: Remove one or more tracks from a Spotify playlist (max 100 tracks per request)
-   - **Parameters**:
-     - `playlistId` (string): The Spotify ID of the playlist
-     - `trackIds` (array): Array of Spotify track IDs to remove (max 100)
-     - `snapshotId` (string, optional): The playlist snapshot ID to target a specific version
-   - **Returns**: Success confirmation with the number of tracks removed
-   - **Example**: `removeTracksFromPlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", trackIds: ["4iV5W9uYEdYUVa79Axb7Rh"] })`
-
-4. **reorderPlaylistItems**
+3. **reorderPlaylistItems**
 
    - **Description**: Reorder a range of tracks within a Spotify playlist by moving them to a new position
    - **Parameters**:
@@ -291,20 +263,47 @@ A lightweight [Model Context Protocol (MCP)](https://modelcontextprotocol.io) se
    - **Returns**: Success confirmation with the move details
    - **Example**: `reorderPlaylistItems({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", rangeStart: 2, insertBefore: 0 })`
 
+4. **unfollowPlaylist**
+
+   - **Description**: Unfollow a playlist. For a playlist you own this is how Spotify removes it from your library — the closest thing to deleting it. Recoverable for 90 days at [spotify.com/account/recover-playlists](https://www.spotify.com/account/recover-playlists/).
+   - **Parameters**:
+     - `playlistId` (string): The Spotify ID of the playlist
+   - **Returns**: Success confirmation
+   - **Example**: `unfollowPlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n" })`
+
+## Deployment model
+
+This fork runs as a **single-tenant remote MCP server** over Streamable HTTP, rather than
+as a local stdio child process.
+
+Single-tenant is a hard constraint, not a default. The server holds exactly one Spotify
+identity — the owner's. Every request that reaches it acts as that account. There is no
+per-user auth and no request-level identity; extending this toward multi-user requires a
+full auth rewrite, not a config change.
+
+Consequences worth internalising before deploying:
+
+- The endpoint URL is the credential. Anyone holding it has full control of the account.
+- Configuration is read from the environment only. Nothing is persisted to disk, because
+  the deployed filesystem is ephemeral and a written token would be silently discarded on
+  each redeploy while appearing to work.
+- The OAuth authorization flow (`npm run auth`) is local-only. The deployed server needs
+  no callback URL.
+
 ## Setup
 
 ### Prerequisites
 
-- Node.js v16+
+- Node.js v20+ (this project is ESM and builds against `@types/node` v22)
 - A Spotify Premium account
 - A registered Spotify Developer application
 
 ### Installation
 
 ```bash
-git clone https://github.com/marcelmarais/spotify-mcp-server.git
+git clone https://github.com/omshuva/spotify-mcp-server.git
 cd spotify-mcp-server
-npm install
+npm ci
 npm run build
 ```
 
@@ -312,101 +311,167 @@ npm run build
 
 1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
 2. Log in with your Spotify account
-3. Click the "Create an App" button
+3. Click "Create an App"
 4. Fill in the app name and description
 5. Accept the Terms of Service and click "Create"
-6. In your new app's dashboard, you'll see your **Client ID**
+6. In your new app's dashboard you'll see your **Client ID**
 7. Click "Show Client Secret" to reveal your **Client Secret**
-8. Click "Edit Settings" and add a Redirect URI (e.g., `http://127.0.0.1:8888/callback`)
-9. Save your changes
+8. Click "Edit Settings" and add the Redirect URI `http://127.0.0.1:8888/callback`
+9. Save
 
-### Spotify API Configuration
+The redirect URI is used only by the local `npm run auth` script. It stays a loopback
+address even in production.
 
-Create a `spotify-config.json` file in the project root (you can copy and modify the provided example):
+If the app is in Development Mode (5-user cap, which is fine for single-tenant), make sure
+the owner account is listed under **User Management**. Unexpected 403s on playback calls
+are usually this rather than a code bug.
+
+### Configuration
+
+All configuration comes from environment variables. There is no config file.
+
+| Variable                  | Required | Purpose                                                          |
+| ------------------------- | -------- | ---------------------------------------------------------------- |
+| `SPOTIFY_CLIENT_ID`       | yes      | From the Spotify dashboard                                       |
+| `SPOTIFY_CLIENT_SECRET`   | yes      | From the Spotify dashboard                                       |
+| `SPOTIFY_REFRESH_TOKEN`   | yes      | Minted by `npm run auth`                                         |
+| `MCP_SHARED_SECRET`       | yes      | Gates the endpoint. Generate with `openssl rand -hex 32`          |
+| `PORT`                    | no       | Injected by Railway. Defaults to 8888                            |
+| `SPOTIFY_REDIRECT_URI`    | no       | Local auth only. Defaults to `http://127.0.0.1:8888/callback`     |
+
+The server validates all of these at boot and exits with a specific message naming any
+that are missing, so a misconfigured deploy fails its healthcheck rather than looking
+healthy and erroring on the first tool call.
+
+For local work, copy `.env.example` to `.env` (gitignored) and load it:
 
 ```bash
-# Copy the example config file
-cp spotify-config.example.json spotify-config.json
+set -a; source .env; set +a
 ```
 
-Then edit the file with your credentials:
+### Authentication
 
-```json
-{
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret",
-  "redirectUri": "http://127.0.0.1:8888/callback"
-}
-```
-
-### Authentication Process
-
-The Spotify API uses OAuth 2.0 for authentication. Follow these steps to authenticate your application:
-
-1. Run the authentication script:
+Run this once, locally, **after** confirming the scope list in `authorizeSpotify()` is the
+one you want. The refresh token carries whatever grant was in effect when it was minted —
+narrowing scopes afterwards does not narrow an already-issued token.
 
 ```bash
 npm run auth
 ```
 
-2. The script will generate an authorization URL. Open this URL in your web browser.
+The script opens a browser, you authorize, and it prints the refresh token to your
+terminal. Nothing is written to disk: the token is a live credential granting full control
+of the account, and a file in the working tree is one `git add -f` away from being
+committed. Copy it straight into your deployment environment.
 
-3. You'll be prompted to log in to Spotify and authorize your application.
+The server refreshes access tokens on demand and holds them in memory only. Concurrent
+refreshes are deduplicated, so parallel tool calls issue a single token request.
 
-4. After authorization, Spotify will redirect you to your specified redirect URI with a code parameter in the URL.
+### Requested scopes
 
-5. The authentication script will automatically exchange this code for access and refresh tokens.
+Deliberately narrow, because the refresh token is deployed to a public HTTPS endpoint and
+the grant is the real blast radius:
 
-6. These tokens will be saved to your `spotify-config.json` file, which will now look something like:
-
-```json
-{
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret",
-  "redirectUri": "http://localhost:8888/callback",
-  "accessToken": "BQAi9Pn...kKQ",
-  "refreshToken": "AQDQcj...7w",
-  "expiresAt": 1677889354671
-}
+```
+user-read-playback-state      user-modify-playback-state
+user-read-currently-playing   user-read-playback-position
+playlist-read-private         playlist-read-collaborative
+playlist-modify-private       playlist-modify-public
+user-library-read             user-read-recently-played
+user-top-read
 ```
 
-**Note**: The `expiresAt` field is a Unix timestamp (in milliseconds) indicating when the access token expires.
+Omitted on purpose: `user-library-modify` (would allow deleting from Liked Songs, which
+has no undo), `user-read-email` and `user-read-private` (leak account identity and profile
+for no functional gain).
 
-7. **Automatic Token Refresh**: The server will automatically refresh the access token when it expires (typically after 1 hour). The refresh happens transparently using the `refreshToken`, so you don't need to re-authenticate manually. If the refresh fails, you'll need to run `npm run auth` again to re-authenticate.
+Correspondingly removed from the toolset: `removeUsersSavedTracks`,
+`removeTracksFromPlaylist`, and `saveOrRemoveAlbumForUser` — the last because both of its
+branches require `user-library-modify` and it could only ever have returned 403 once that
+scope was dropped.
 
-## Integrating with Claude Desktop, Cursor, and VsCode [Via Cline model extension](https://marketplace.visualstudio.com/items/?itemName=saoudrizwan.claude-dev)
+## Deploying to Railway
 
-To use your MCP server with Claude Desktop, add it to your Claude configuration:
+The repo ships a `railway.json`; no volume is needed or wanted.
 
-```json
-{
-  "mcpServers": {
-    "spotify": {
-      "command": "node",
-      "args": ["spotify-mcp-server/build/index.js"]
-    }
-  }
-}
-```
+1. Create a Railway project connected to this repo.
+2. Set `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REFRESH_TOKEN`, and
+   `MCP_SHARED_SECRET` under the service's Variables. `PORT` is injected automatically.
+3. Deploy. Build runs `npm ci && npm run build`; start is `node build/index.js`;
+   healthcheck is `GET /healthz` with a 30s timeout.
 
-For Cursor, go to the MCP tab in `Cursor Settings` (command + shift + J). Add a server with this command:
+### Endpoints
+
+| Method | Path                        | Auth | Purpose                          |
+| ------ | --------------------------- | ---- | -------------------------------- |
+| `GET`  | `/healthz`                  | none | Railway healthcheck. No Spotify calls |
+| `POST` | `/mcp/<MCP_SHARED_SECRET>`  | path secret, optional bearer | The MCP endpoint |
+
+Everything else returns 404. Non-POST on the MCP path returns 405. No CORS headers are
+sent — nothing browser-based should be calling this.
+
+### Endpoint authentication
+
+Two layers:
+
+1. **Secret path segment.** The endpoint is mounted at `/mcp/:secret`, compared against
+   `MCP_SHARED_SECRET` in constant time. This is the primary gate, and it works regardless
+   of what the client supports because the secret rides in the URL.
+2. **Bearer token.** If an `Authorization: Bearer <token>` header is present it must also
+   match `MCP_SHARED_SECRET`. Defence in depth, not the primary gate — absent is fine.
+
+Failures return `401` with an empty body and no indication of which layer rejected the
+request. Rejections are logged to stderr with the source IP. Requests are rate-limited to
+60/min per IP, in memory.
+
+Verify a deployment:
 
 ```bash
-node path/to/spotify-mcp-server/build/index.js
+URL=https://<app>.up.railway.app
+SECRET=<your MCP_SHARED_SECRET>
+
+curl -s -o /dev/null -w '%{http_code}\n' $URL/healthz                    # 200
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $URL/mcp/wrong          # 401
+curl -s -X POST "$URL/mcp/$SECRET" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
 ```
 
-To set up your MCP correctly with Cline ensure you have the following file configuration set `cline_mcp_settings.json`:
+The `Accept` header must list both `application/json` and `text/event-stream`; the MCP
+spec requires it and the transport rejects requests without it.
 
-```json
-{
-  "mcpServers": {
-    "spotify": {
-      "command": "node",
-      "args": ["~/../spotify-mcp-server/build/index.js"],
-      "autoApprove": ["getListeningHistory", "getNowPlaying"]
-    }
-  }
-}
+## Adding to claude.ai as a custom connector
+
+Settings > Connectors > Add custom connector, with the URL:
+
+```
+https://<app>.up.railway.app/mcp/<MCP_SHARED_SECRET>
 ```
 
-You can add additional tools to the auto approval array to run the tools without intervention.
+The secret in the path is what authenticates you, so treat this URL as a password. Do not
+share it — it grants full control of the Spotify account.
+
+Two caveats, current as of August 2026:
+
+- **Request headers are gated.** claude.ai does support fixed-credential auth via a
+  Request headers section (allowlisted names including `authorization`, value sent
+  verbatim, so you'd enter `Bearer <secret>`), but it is in beta and rolled out on
+  request. The secret path segment works without it.
+- **No-auth servers may be rejected.** The connect flow can assume OAuth 2.1 and attempt
+  Dynamic Client Registration, failing against a server that exposes no OAuth endpoints.
+  This has been reported on Team/Enterprise with org-managed connectors. If you hit it, a
+  static OAuth-metadata shim on this server is the fix — a small addition, not the
+  multi-user rewrite that per-user auth would require.
+
+## Local development
+
+To run the HTTP server locally:
+
+```bash
+set -a; source .env; set +a
+npm run build
+npm start
+```
+
+Then point a client at `http://127.0.0.1:8888/mcp/$MCP_SHARED_SECRET`.

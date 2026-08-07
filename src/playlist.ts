@@ -147,71 +147,6 @@ const updatePlaylist: tool<{
   },
 };
 
-const removeTracksFromPlaylist: tool<{
-  playlistId: z.ZodString;
-  trackIds: z.ZodArray<z.ZodString>;
-  snapshotId: z.ZodOptional<z.ZodString>;
-}> = {
-  name: 'removeTracksFromPlaylist',
-  description:
-    'Remove one or more tracks from a Spotify playlist (max 100 tracks per request)',
-  schema: {
-    playlistId: z.string().describe('The Spotify ID of the playlist'),
-    trackIds: z
-      .array(z.string())
-      .min(1)
-      .max(100)
-      .describe('Array of Spotify track IDs to remove (max 100)'),
-    snapshotId: z
-      .string()
-      .optional()
-      .describe(
-        'The playlist snapshot ID to target a specific version (optional)',
-      ),
-  },
-  handler: async (args, _extra: SpotifyHandlerExtra) => {
-    const { playlistId, trackIds, snapshotId } = args;
-
-    try {
-      const items = trackIds.map((id) => ({
-        uri: id.startsWith('spotify:') ? id : `spotify:track:${id}`,
-      }));
-
-      // Hit /items directly: SDK targets the deprecated /tracks endpoint
-      // (see spotifyFetch JSDoc for context on the March 2026 migration).
-      await spotifyFetch(`playlists/${playlistId}/items`, {
-        method: 'DELETE',
-        body: {
-          items,
-          ...(snapshotId ? { snapshot_id: snapshotId } : {}),
-        },
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully removed ${trackIds.length} track${
-              trackIds.length === 1 ? '' : 's'
-            } from playlist (ID: ${playlistId})`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error removing tracks from playlist: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
-        ],
-      };
-    }
-  },
-};
-
 const reorderPlaylistItems: tool<{
   playlistId: z.ZodString;
   rangeStart: z.ZodNumber;
@@ -334,7 +269,6 @@ const unfollowPlaylist: tool<{
 export const playlistTools = [
   getPlaylist,
   updatePlaylist,
-  removeTracksFromPlaylist,
   reorderPlaylistItems,
   unfollowPlaylist,
 ];

@@ -194,68 +194,6 @@ const getAlbumTracks: tool<{
   },
 };
 
-const saveOrRemoveAlbumForUser: tool<{
-  albumIds: z.ZodArray<z.ZodString>;
-  action: z.ZodEnum<['save', 'remove']>;
-}> = {
-  name: 'saveOrRemoveAlbumForUser',
-  description: 'Save or remove albums from the user\'s "Your Music" library',
-  schema: {
-    albumIds: z
-      .array(z.string())
-      .max(20)
-      .describe('Array of Spotify album IDs (max 20)'),
-    action: z
-      .enum(['save', 'remove'])
-      .describe('Action to perform: save or remove albums'),
-  },
-  handler: async (args, _extra: SpotifyHandlerExtra) => {
-    const { albumIds, action } = args;
-
-    if (albumIds.length === 0) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Error: No album IDs provided',
-          },
-        ],
-      };
-    }
-
-    try {
-      await handleSpotifyRequest(async (spotifyApi) => {
-        return action === 'save'
-          ? await spotifyApi.currentUser.albums.saveAlbums(albumIds)
-          : await spotifyApi.currentUser.albums.removeSavedAlbums(albumIds);
-      });
-
-      const actionPastTense = action === 'save' ? 'saved' : 'removed';
-      const preposition = action === 'save' ? 'to' : 'from';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully ${actionPastTense} ${albumIds.length} album${albumIds.length === 1 ? '' : 's'} ${preposition} your library`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error ${action === 'save' ? 'saving' : 'removing'} albums: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
-        ],
-      };
-    }
-  },
-};
-
 const checkUsersSavedAlbums: tool<{
   albumIds: z.ZodArray<z.ZodString>;
 }> = {
@@ -316,9 +254,4 @@ const checkUsersSavedAlbums: tool<{
   },
 };
 
-export const albumTools = [
-  getAlbums,
-  getAlbumTracks,
-  saveOrRemoveAlbumForUser,
-  checkUsersSavedAlbums,
-];
+export const albumTools = [getAlbums, getAlbumTracks, checkUsersSavedAlbums];
